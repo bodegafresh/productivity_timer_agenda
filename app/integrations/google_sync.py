@@ -42,6 +42,13 @@ def calendar_service():
     creds = _get_creds()
     return build('calendar', 'v3', credentials=creds, cache_discovery=False)
 
+def _ensure_timezone(d: dt.datetime) -> dt.datetime:
+    if d.tzinfo is None or d.tzinfo.utcoffset(d) is None:
+        local_tz = dt.datetime.now().astimezone().tzinfo
+        return d.replace(tzinfo=local_tz)
+    return d
+
+
 def add_google_task(title: str, notes: str = "", due: Optional[dt.datetime] = None, tasklist_id: Optional[str] = None) -> str:
     svc = tasks_service()
     if not tasklist_id:
@@ -52,6 +59,7 @@ def add_google_task(title: str, notes: str = "", due: Optional[dt.datetime] = No
     if notes:
         body["notes"] = notes
     if due:
+        due = _ensure_timezone(due)
         body["due"] = due.astimezone(dt.timezone.utc).isoformat()
     res = svc.tasks().insert(tasklist=tasklist_id, body=body).execute()
     return res["id"]
@@ -67,8 +75,11 @@ def list_google_tasks(max_results: int = 50, tasklist_id: Optional[str] = None):
 # -------------------- Google Calendar --------------------
 def add_calendar_event(title: str, start: dt.datetime, end: Optional[dt.datetime] = None, description: str = "", calendar_id: str = "primary") -> str:
     svc = calendar_service()
+    start = _ensure_timezone(start)
     if end is None:
         end = start + dt.timedelta(minutes=30)
+    else:
+        end = _ensure_timezone(end)
     event = {
         "summary": title,
         "description": description,

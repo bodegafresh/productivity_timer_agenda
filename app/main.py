@@ -1,6 +1,11 @@
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
+
+try:
+    from tkcalendar import DateEntry
+except ImportError:  # pragma: no cover
+    DateEntry = None
 import datetime as dt
 
 from .storage import add_task, list_tasks, update_task, delete_task, get_task, add_tabata_session, count_tabatas_on
@@ -321,8 +326,12 @@ class AgendaTab(ttk.Frame):
         ttk.Label(grid, text="Descripción").grid(row=0, column=2, sticky="w")
         ttk.Entry(grid, textvariable=self.desc_var, width=40).grid(row=0, column=3, sticky="w", padx=5)
 
-        ttk.Label(grid, text="Fecha (YYYY-MM-DD)").grid(row=1, column=0, sticky="w", pady=(6,0))
-        ttk.Entry(grid, textvariable=self.date_var, width=16).grid(row=1, column=1, sticky="w", padx=5, pady=(6,0))
+        ttk.Label(grid, text="Fecha").grid(row=1, column=0, sticky="w", pady=(6,0))
+        if DateEntry is None:
+            self.date_entry = ttk.Entry(grid, textvariable=self.date_var, width=16)
+        else:
+            self.date_entry = DateEntry(grid, textvariable=self.date_var, date_pattern="yyyy-mm-dd", width=16, showweeknumbers=False)
+        self.date_entry.grid(row=1, column=1, sticky="w", padx=5, pady=(6,0))
         ttk.Label(grid, text="Hora (HH:MM)").grid(row=1, column=2, sticky="w", pady=(6,0))
         ttk.Entry(grid, textvariable=self.time_var, width=10).grid(row=1, column=3, sticky="w", padx=5, pady=(6,0))
 
@@ -362,6 +371,11 @@ class AgendaTab(ttk.Frame):
         t = now() + dt.timedelta(minutes=minutes)
         self.date_var.set(t.strftime("%Y-%m-%d"))
         self.time_var.set(t.strftime("%H:%M"))
+        if DateEntry is not None:
+            try:
+                self.date_entry.set_date(t.date())
+            except Exception:
+                pass
 
     def add_task(self):
         title = self.title_var.get().strip()
@@ -423,7 +437,10 @@ class App(tk.Tk):
 
         style = ttk.Style(self)
         try:
-            if self.tk.call("tk", "windowingsystem") == "aqua":
+            windowing = self.tk.call("tk", "windowingsystem")
+            if windowing == "aqua" and DateEntry is not None:
+                style.theme_use("clam")
+            elif windowing == "aqua":
                 style.theme_use("aqua")
             else:
                 style.theme_use("clam")
