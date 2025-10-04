@@ -3,9 +3,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 try:
-    from tkcalendar import DateEntry
+    from tkcalendar import DateEntry, Calendar
 except ImportError:  # pragma: no cover
     DateEntry = None
+    Calendar = None
 import datetime as dt
 
 from .storage import add_task, list_tasks, update_task, delete_task, get_task, add_tabata_session, count_tabatas_on
@@ -17,6 +18,7 @@ from .utils import parse_datetime, now
 from .integrations.google_sync import export_local_task_to_google
 
 APP_TITLE = "Productivity Timer & Agenda"
+WINDOWING_SYSTEM = None
 
 class TimerTab(ttk.Frame):
     def __init__(self, master):
@@ -317,6 +319,8 @@ class AgendaTab(ttk.Frame):
         self.date_var = tk.StringVar()
         self.time_var = tk.StringVar()
         self.repeat_var = tk.StringVar(value="none")
+        self._calendar_popup = None
+        self._time_popup = None
 
         grid = ttk.Frame(frm)
         grid.pack(fill="x", padx=5, pady=5)
@@ -327,13 +331,29 @@ class AgendaTab(ttk.Frame):
         ttk.Entry(grid, textvariable=self.desc_var, width=40).grid(row=0, column=3, sticky="w", padx=5)
 
         ttk.Label(grid, text="Fecha").grid(row=1, column=0, sticky="w", pady=(6,0))
+        today = dt.date.today()
         if DateEntry is None:
             self.date_entry = ttk.Entry(grid, textvariable=self.date_var, width=16)
         else:
-            self.date_entry = DateEntry(grid, textvariable=self.date_var, date_pattern="yyyy-mm-dd", width=16, showweeknumbers=False)
+            if WINDOWING_SYSTEM == "aqua":
+                # macOS (Aqua) tiene problemas con el popup nativo de tkcalendar
+                self.date_entry = ttk.Entry(grid, textvariable=self.date_var, width=16, state="readonly")
+                self.date_entry.bind("<Button-1>", self._open_mac_calendar)
+            else:
+                self.date_entry = DateEntry(
+                    grid,
+                    textvariable=self.date_var,
+                    date_pattern="yyyy-mm-dd",
+                    width=16,
+                    showweeknumbers=False,
+                    state="readonly",
+                    mindate=today,
+                )
         self.date_entry.grid(row=1, column=1, sticky="w", padx=5, pady=(6,0))
         ttk.Label(grid, text="Hora (HH:MM)").grid(row=1, column=2, sticky="w", pady=(6,0))
-        ttk.Entry(grid, textvariable=self.time_var, width=10).grid(row=1, column=3, sticky="w", padx=5, pady=(6,0))
+        self.time_entry = ttk.Entry(grid, textvariable=self.time_var, width=10, state="readonly")
+        self.time_entry.grid(row=1, column=3, sticky="w", padx=5, pady=(6,0))
+        self.time_entry.bind("<Button-1>", self._open_time_picker)
 
         ttk.Label(grid, text="Repetir").grid(row=2, column=0, sticky="w", pady=(6,0))
         cb = ttk.Combobox(grid, textvariable=self.repeat_var, values=["none","daily","weekly","weekdays"], width=12, state="readonly")
@@ -366,6 +386,134 @@ class AgendaTab(ttk.Frame):
         ttk.Button(actions, text="Eliminar", command=self.delete_task).pack(side="left", padx=2)
         ttk.Button(actions, text="Refrescar", command=self.refresh).pack(side="left", padx=2)
         ttk.Button(actions, text="Exportar a Google", command=self.export_to_google).pack(side="left", padx=8)
+
+    def _open_mac_calendar(self, _event=None):
+        if Calendar is None:
+            # Si tkcalendar no está disponible, no podemos mostrar popup personalizado
+            return
+        self._close_calendar_popup()
+
+        top = tk.Toplevel(self)
+        top.transient(self.winfo_toplevel())
+        top.wm_overrideredirect(True)
+        top.configure(borderwidth=1, relief="solid", background="#e5e5e5")
+
+        entry_x = self.date_entry.winfo_rootx()
+        entry_y = self.date_entry.winfo_rooty() + self.date_entry.winfo_height()
+        top.geometry(f"220x210+{entry_x}+{entry_y}")
+
+        try:
+            current_date = dt.datetime.strptime(self.date_var.get(), "%Y-%m-%d").date()
+        except Exception:
+            current_date = dt.date.today()
+
+        cal = Calendar(
+            top,
+            selectmode="day",
+            year=current_date.year,
+            month=current_date.month,
+            day=current_date.day,
+            date_pattern="yyyy-mm-dd",
+            showweeknumbers=False,
+            mindate=dt.date.today(),
+        )
+        cal.pack(fill="both", expand=True, padx=4, pady=4)
+
+        cal.bind("<<CalendarSelected>>", lambda _e: self._on_calendar_selected(cal))
+        top.bind("<FocusOut>", lambda _e: self._close_calendar_popup())
+        top.bind("<Escape>", lambda _e: self._close_calendar_popup())
+
+        self._calendar_popup = top
+        top.focus_set()
+
+    def _on_calendar_selected(self, cal: Calendar):
+        value = cal.get_date()
+        self.date_var.set(value)
+        self._close_calendar_popup()
+
+    def _close_calendar_popup(self):
+        if self._calendar_popup is not None and self._calendar_popup.winfo_exists():
+            self._calendar_popup.destroy()
+        self._calendar_popup = None
+
+    def _open_time_picker(self, _event=None):
+        self._close_time_popup()
+
+        top = tk.Toplevel(self)
+        top.transient(self.winfo_toplevel())
+        top.wm_overrideredirect(True)
+        top.configure(borderwidth=1, relief="solid", background="#e5e5e5")
+
+        entry_x = self.time_entry.winfo_rootx()
+        entry_y = self.time_entry.winfo_rooty() + self.time_entry.winfo_height()
+        top.geometry(f"+{entry_x}+{entry_y}")
+
+        frame = ttk.Frame(top, padding=8)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="Hora").grid(row=0, column=0, pady=(0,6))
+        hour_var = tk.StringVar(value=(self.time_var.get()[:2] if len(self.time_var.get()) >= 2 else "00"))
+        hour_list = tk.Listbox(frame, height=8, exportselection=False, width=3, activestyle="dotbox")
+        for h in range(24):
+            hour_list.insert("end", f"{h:02d}")
+        try:
+            idx = list(hour_list.get(0, "end")).index(hour_var.get())
+            hour_list.selection_set(idx)
+            hour_list.see(idx)
+        except Exception:
+            hour_list.selection_clear(0, "end")
+            hour_list.selection_set(0)
+        hour_list.grid(row=1, column=0, padx=(0,6))
+
+        ttk.Label(frame, text="Min").grid(row=0, column=1, pady=(0,6))
+        minute_var = tk.StringVar(value=(self.time_var.get()[3:5] if len(self.time_var.get()) >= 5 else "00"))
+        minute_list = tk.Listbox(frame, height=8, exportselection=False, width=3, activestyle="dotbox")
+        for m in range(60):
+            minute_list.insert("end", f"{m:02d}")
+        try:
+            idx = list(minute_list.get(0, "end")).index(minute_var.get())
+            minute_list.selection_set(idx)
+            minute_list.see(idx)
+        except Exception:
+            minute_list.selection_clear(0, "end")
+            minute_list.selection_set(0)
+        minute_list.grid(row=1, column=1, padx=(0,6))
+
+        btns = ttk.Frame(frame)
+        btns.grid(row=2, column=0, columnspan=2, pady=(10,0))
+        ttk.Button(btns, text="Cancelar", command=self._close_time_popup).pack(side="left", padx=4)
+        ttk.Button(btns, text="Aceptar", command=lambda: self._set_time_and_close_from_lists(hour_list, minute_list)).pack(side="left", padx=4)
+
+        hour_list.bind("<Double-Button-1>", lambda _e: self._set_time_and_close_from_lists(hour_list, minute_list))
+        minute_list.bind("<Double-Button-1>", lambda _e: self._set_time_and_close_from_lists(hour_list, minute_list))
+
+        top.bind("<FocusOut>", lambda _e: self._close_time_popup())
+        top.bind("<Escape>", lambda _e: self._close_time_popup())
+        top.focus_set()
+        top.update_idletasks()
+        width = max(top.winfo_reqwidth(), 220)
+        height = max(top.winfo_reqheight(), 210)
+        top.geometry(f"{width}x{height}+{entry_x}+{entry_y}")
+        self._time_popup = top
+
+    def _set_time_and_close_from_lists(self, hour_list: tk.Listbox, minute_list: tk.Listbox):
+        try:
+            sel = hour_list.curselection()
+            hour = int(hour_list.get(sel[0])) if sel else int(hour_list.get(0))
+        except Exception:
+            hour = 0
+        try:
+            sel = minute_list.curselection()
+            minute = int(minute_list.get(sel[0])) if sel else int(minute_list.get(0))
+        except Exception:
+            minute = 0
+        self.time_var.set(f"{hour:02d}:{minute:02d}")
+        self._close_time_popup()
+
+    def _close_time_popup(self):
+        if self._time_popup is not None and self._time_popup.winfo_exists():
+            self._time_popup.destroy()
+        self._time_popup = None
 
     def _preset_minutes(self, minutes: int):
         t = now() + dt.timedelta(minutes=minutes)
@@ -437,7 +585,9 @@ class App(tk.Tk):
 
         style = ttk.Style(self)
         try:
+            global WINDOWING_SYSTEM
             windowing = self.tk.call("tk", "windowingsystem")
+            WINDOWING_SYSTEM = windowing
             if windowing == "aqua" and DateEntry is not None:
                 style.theme_use("clam")
             elif windowing == "aqua":
