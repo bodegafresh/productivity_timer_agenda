@@ -88,25 +88,35 @@ class TimerTab(ttk.Frame):
         except Exception:
             pass
         phase = "Trabajo" if self.is_work else "Descanso"
-        notify("Timer", f"Fin de {phase}")
-        play_sound("end")
+        notify("Pomodoro", f"¡Tiempo de {phase} terminado!")
+
+        # 2. Lógica de Ciclos
         if self.is_work:
             self.completed_cycles += 1
             if self.completed_cycles >= self.cycles.get():
-                self.running = False
-                self.status_lbl.config(text=f"Ciclos completados: {self.completed_cycles}")
+                self._finish_timer_session()
                 return
+            
             self.is_work = False
             self.remaining = self.break_min.get() * 60
-            self.status_lbl.config(text=f"Descanso #{self.completed_cycles}")
-            play_sound("start")
+            self.status_lbl.config(text=f"Descanso del Ciclo {self.completed_cycles}")
+            play_sound("rest_start") # El sonido descendente meditativo
         else:
             self.is_work = True
             self.remaining = self.work_min.get() * 60
-            self.status_lbl.config(text=f"Trabajo #{self.completed_cycles+1}")
-            play_sound("start")
+            self.status_lbl.config(text=f"Trabajo Ciclo #{self.completed_cycles + 1}")
+            play_sound("work_start") # El despertar (Zarathustra)
+        
         self._update_time_lbl()
+        # Reiniciar el tick con seguridad
+        if self._timer_id: self.after_cancel(self._timer_id)
         self._timer_id = self.after(1000, self._tick)
+        
+    def _finish_timer_session(self):
+        self.running = False
+        self.status_lbl.config(text="🔥 ¡Misión cumplida! Todos los ciclos terminados.")
+        notify("Pomodoro", "Has completado tu bloque de enfoque. ¡Excelente trabajo!")
+        play_sound("agenda_alert")
 
     def start(self):
         if self.running:
@@ -116,10 +126,9 @@ class TimerTab(ttk.Frame):
             self.completed_cycles = 0
             self.remaining = self.work_min.get() * 60
             self.status_lbl.config(text="Trabajo #1")
-            play_sound("start")
+            play_sound("work_start")
             self._update_time_lbl()
         self.running = True
-        play_sound("start")
         self._tick()
 
     def pause(self):
@@ -215,30 +224,33 @@ class TabataTab(ttk.Frame):
             pass
         if self.is_work:
             self.current_round += 1
-            notify("Tabata", f"Fin trabajo #{self.current_round}")
-            play_sound("end")
             if self.current_round >= self.rounds.get():
                 self._finish_session()
                 return
             self.is_work = False
             self.remaining = self.rest_sec.get()
-            self.status_lbl.config(text=f"Descanso (ronda {self.current_round}/{self.rounds.get()})")
+            self.status_lbl.config(text=f"RECUPERA (Ronda {self.current_round})")
+            notify("Tabata", f"Descanso - Ronda {self.current_round}")
+            play_sound("tabata_rest")
         else:
-            notify("Tabata", "Fin descanso")
-            play_sound("end")
             self.is_work = True
             self.remaining = self.work_sec.get()
-            self.status_lbl.config(text=f"Trabajo (ronda {self.current_round+1}/{self.rounds.get()})")
+            self.status_lbl.config(text=f"¡DALE! Ronda {self.current_round + 1}")
+            notify("Tabata", f"¡TRABAJA! Ronda {self.current_round + 1}")
+            play_sound("tabata_work")
+        
         self._update_time_lbl()
+        if self._timer_id: self.after_cancel(self._timer_id)
         self._timer_id = self.after(1000, self._tick)
 
     def _finish_session(self):
         self.running = False
         self.remaining = 0
         self._update_time_lbl()
-        self.status_lbl.config(text=f"¡Completado! {self.rounds.get()} rondas")
-        notify("Tabata", "Sesión completada 🎉")
-        play_sound("alert")
+        self.status_lbl.config(text=f"¡VICTORIA! {self.rounds.get()} rondas completadas")
+        notify("Tabata", "¡Sesión Épica Completada! 🎉")
+        play_sound("tabata_victory") # Aquí suena la victoria de 5 segundos
+        
         start = self._session_start or dt.datetime.now().replace(second=0, microsecond=0)
         add_tabata_session(start, self.rounds.get(), self.work_sec.get(), self.rest_sec.get(), True)
         self.refresh_today_count()
@@ -251,10 +263,12 @@ class TabataTab(ttk.Frame):
             self.current_round = 0
             self.remaining = self.work_sec.get()
             self._session_start = dt.datetime.now().replace(second=0, microsecond=0)
-            self.status_lbl.config(text=f"Trabajo (ronda 1/{self.rounds.get()})")
+            self.status_lbl.config(text=f"¡DALE! Ronda 1/{self.rounds.get()}")
+            # CORRECCIÓN: Notificación y sonido desde el primer clic
+            notify("Tabata", "¡Iniciando Ronda 1! ¡A darlo todo!")
+            play_sound("tabata_work") 
             self._update_time_lbl()
         self.running = True
-        play_sound("start")
         self._tick()
 
     def pause(self):

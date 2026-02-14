@@ -26,7 +26,7 @@ class Scheduler(threading.Thread):
 
     def _fire(self, task: Task):
         notify("Recordatorio", f"{task.title}")
-        play_sound("alert")
+        play_sound("agenda_alert")
         task.last_fired_at = dt.datetime.now().replace(second=0, microsecond=0)
         nxt = task.next_occurrence()
         if nxt is not None:
