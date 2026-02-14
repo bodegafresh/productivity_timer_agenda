@@ -22,14 +22,23 @@ def _get_creds():
     creds = None
     if TOKEN_PATH.exists():
         creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                # Si el refresh token también es inválido, iniciamos un nuevo flujo
+                print(f"Error renovando token: {e}")
+                print("Iniciando nuevo flujo de autenticación...")
+                creds = None  # Forzar nuevo flujo
+
+        if not creds or not creds.valid:
             if not CLIENT_SECRET_PATH.exists():
                 raise FileNotFoundError("Falta credentials.json en la carpeta app/ para autenticar con Google.")
             flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRET_PATH), SCOPES)
             creds = flow.run_local_server(port=0)
+
         TOKEN_PATH.write_text(creds.to_json())
     return creds
 
